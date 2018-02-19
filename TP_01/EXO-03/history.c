@@ -10,13 +10,12 @@
  */
 struct history *new_history(char *name)
 {
-    /* TODO : Exercice 3 - Question 2 */
-    struct history *h = malloc(sizeof(struct history));
-    h->commit_count = 0;
-    h->commit_list = NULL;
-    h->name = name;
+	struct history *h = malloc(sizeof(struct history));
+	h->commit_count = 0;
+	h->commit_list = new_commit(0,0,"First");;
+	h->name = name;
 
-    return h;
+	return h;
 }
 
 /**
@@ -26,9 +25,8 @@ struct history *new_history(char *name)
  */
 struct commit *last_commit(struct history *h)
 {
-    /* TODO : Exercice 3 - Question 2 */
 
-    return h->commit_list->prev;
+	return h->commit_list->prev;
 }
 
 /**
@@ -39,7 +37,18 @@ struct commit *last_commit(struct history *h)
  */
 void display_history(struct history *h)
 {
-    /* TODO : Exercice 3 - Question 2 */
+	printf("Historique de : %s\n", h->name);
+	struct commit *p, *q;
+	p = h->commit_list;
+	q = h->commit_list->prev;
+		
+	while (p != q){
+		display_commit(p);
+		p = p->next;
+	}
+	printf("\n");
+	return;
+
 }
 
 /**
@@ -51,6 +60,22 @@ void display_history(struct history *h)
  */
 void infos(struct history *h, int major, unsigned long minor)
 {
-    /* TODO : Exercice 3 - Question 2 */
-    return NULL;
+	/* TODO : Exercice 3 - Question 2 */
+	struct commit *p, *q;
+	p = h->commit_list;
+	q = h->commit_list->prev;
+	int found = 0;
+		
+	while (!found && p != q){
+
+		if (p->version.major == major &&
+				p->version.minor == minor){
+			found = 1;
+		}
+		p = p->next;
+	}
+
+	found ? display_commit(p) : printf("Not Here !!!\n");
+	return;
+
 }

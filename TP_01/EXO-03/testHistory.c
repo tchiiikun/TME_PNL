@@ -8,11 +8,12 @@ int main(int argc, char const *argv[])
 	struct history *history = new_history("Tout une histoire");
 	struct commit *tmp, *victim, *last;
 
-	//display_commit(last_commit(history));
+	display_commit(last_commit(history));
 	printf("\n");
 
 	display_history(history);
 
+	printf("adding minor\n");
 	tmp = add_minor_commit(last_commit(history), "Work 1");
 	tmp = add_minor_commit(tmp, "Work 2");
 	victim = add_minor_commit(tmp, "Work 3");

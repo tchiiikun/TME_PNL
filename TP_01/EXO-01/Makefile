@@ -18,9 +18,14 @@ testVersion : testVersion.c version.o
 testOffset : testOffset.c version.o
 	gcc -Wall -g $^ -o $@
 
-testHistory : $(HIS)testHistory.c $(HIS)history.o $(HIS)commit.o
+testHistory : $(HIS)testHistory.c history.o commit.o
 	gcc -Wall -g $^ -o $@
 
+history.o: $(HIS)history.c
+	gcc -Wall -g -c $<
+
+commit.o: $(HIS)commit.c
+	gcc -Wall -g -c $<
 
 check : 
 	for f in *.c *.h ; do
@@ -29,3 +34,4 @@ check :
 
 clean :
 	rm -rf *.o testVersion testOffset testHistory
+	rm ../EXO-03/*.o

@@ -19,17 +19,16 @@ static int nextId;
  * @return: retourne un pointeur vers la structure allouee et initialisee
  */
 struct commit *new_commit(unsigned short major, unsigned long minor,
-        char *comment)
+		char *comment)
 {
-    /* TODO : Exercice 3 - Question 2 */
-    struct commit *c = malloc(sizeof(struct commit));
-    c->id = nextId++;
-    c->comment = comment;
-    c->next = c;
-    c->prev = c;
-    c->version.major = major;
-    c->version.minor = minor;
-    return c;
+	struct commit *c = malloc(sizeof(struct commit));
+	c->id = ++nextId;
+	c->comment = comment;
+	c->next = c;
+	c->prev = c;
+	c->version.major = major;
+	c->version.minor = minor;
+	return c;
 }
 
 /**
@@ -43,8 +42,14 @@ struct commit *new_commit(unsigned short major, unsigned long minor,
  */
 static struct commit *insert_commit(struct commit *from, struct commit *new)
 {
-    /* TODO : Exercice 3 - Question 3 */
-    return NULL;
+
+	struct commit* first = from->next;
+	first->prev = new;
+	new->next = first;
+	from->next = new;
+	new->prev = from;
+
+	return new;
 }
 
 /**
@@ -58,8 +63,18 @@ static struct commit *insert_commit(struct commit *from, struct commit *new)
  */
 struct commit *add_minor_commit(struct commit *from, char *comment)
 {
-    /* TODO : Exercice 3 - Question 3 */
-    return NULL;
+	struct commit* new =
+		new_commit(from->version.major,
+				++from->version.minor,
+				comment);
+
+	struct commit* first = from->next;
+	first->prev = new;
+	new->next = first;
+	from->next = new;
+	new->prev = from;
+
+	return new;
 }
 
 /**
@@ -73,8 +88,19 @@ struct commit *add_minor_commit(struct commit *from, char *comment)
  */
 struct commit *add_major_commit(struct commit *from, char *comment)
 {
-    /* TODO : Exercice 3 - Question 3 */
-    return NULL;
+
+	struct commit* new =
+		new_commit(++from->version.major,
+				0,
+				comment);
+
+	struct commit* first = from->next;
+	first->prev = new;
+	new->next = first;
+	from->next = new;
+	new->prev = from;
+
+	return new;
 }
 
 /**
@@ -86,8 +112,17 @@ struct commit *add_major_commit(struct commit *from, char *comment)
  */
 struct commit *del_commit(struct commit *victim)
 {
-    /* TODO : Exercice 3 - Question 5 */
-    return NULL;
+	struct commit *p, *n;
+	p = victim->prev;
+	n = victim->next;
+
+	p->next = n;
+	n->prev = p;
+	
+	victim->prev = NULL;
+	victim->next = NULL;
+	free(victim);
+	return p;
 }
 
 /**
@@ -97,7 +132,12 @@ struct commit *del_commit(struct commit *victim)
  */
 void display_commit(struct commit *c)
 {
-    /* TODO : Exercice 3 - Question 4 */
+	printf("%d: %d-%d (%s) '%s'\n",
+			c->id,
+			c->version.major,
+			c->version.minor,
+			1 & c->version.minor ? "unstable" : "stable",
+			c->comment);
 }
 
 /**
@@ -110,8 +150,8 @@ void display_commit(struct commit *c)
  * Note:      cette fonction continue de fonctionner meme si l'on modifie
  *            l'ordre et le nombre des champs de la structure commit.
  */
-struct commit *commitOf(struct version *version)
-{
-    /* TODO : Exercice 2 - Question 2 */
-    return NULL;
+struct commit *commit_off(struct version *v){
+
+	return (struct commit *)
+		((void *)v - (void *)(&((struct commit *) 0)->version));
 }
