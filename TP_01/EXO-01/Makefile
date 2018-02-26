@@ -4,7 +4,6 @@
 HIS=../EXO-03/
 
 
-CHECK_PATCH=./checkpatch.pl --no-tree
 
 
 all : testVersion testOffset testHistory
@@ -27,10 +26,6 @@ history.o: $(HIS)history.c
 commit.o: $(HIS)commit.c
 	gcc -Wall -g -c $<
 
-check : 
-	for f in *.c *.h ; do
-	    $(CHECK_PATCH) -f $$f
-	done
 
 clean :
 	rm -rf *.o testVersion testOffset testHistory

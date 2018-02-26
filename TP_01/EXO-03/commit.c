@@ -132,7 +132,7 @@ struct commit *del_commit(struct commit *victim)
  */
 void display_commit(struct commit *c)
 {
-	printf("%d: %d-%d (%s) '%s'\n",
+	printf("%ld: %d-%ld (%s) '%s'\n",
 			c->id,
 			c->version.major,
 			c->version.minor,

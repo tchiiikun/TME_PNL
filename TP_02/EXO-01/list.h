@@ -1,5 +1,4 @@
-#ifndef _LINUX_LIST_H
-#define _LINUX_LIST_H
+#ifndef _LINUX_LIST_H #define _LINUX_LIST_H
 
 /*
  * These are non-NULL pointers that will result in page faults
