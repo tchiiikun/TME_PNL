@@ -111,17 +111,33 @@ https://blog.feabhas.com/2014/04/static-and-dynamic-libraries-on-linux/
 
 gcc -Wall -fPIC $^ -o $@ -L /home/tchi/Lecture/TME_PNL/TP_03/EXO-05 cron_func.so -Wl,-rpath /home/tchi/Lecture/TME_PNL/TP_03/EXO-05
 
-fPIC :
-Wl,rpath=/XXX/XXX :
--L :
--l :
+   fPIC :
+   Wl,rpath=/XXX/XXX :
+   -L :
+   -l :
 
 ### Question 4)
 
 
 #   Exercice 5
 
+### Question 1)
+OK
 
+### Question 2)
+OK
+
+### Question 3)
+https://rafalcieslak.wordpress.com/2013/04/02/dynamic-linker-tricks-using-ld_preload-to-cheat-inject-features-and-investigate-programs/
+
+### Question 4)
+https://rafalcieslak.wordpress.com/2013/04/02/dynamic-linker-tricks-using-ld_preload-to-cheat-inject-features-and-investigate-programs/
+
+### Question 5)
+https://security.stackexchange.com/questions/63599/is-there-any-way-to-block-ld-preload-and-ld-library-path-on-linux
+
+### Question 6)
+voir code.
 
 
 
