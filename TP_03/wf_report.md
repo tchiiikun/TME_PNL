@@ -1,8 +1,8 @@
 
-## Premier pas dans le Noyau 
+##   Premier pas dans le Noyau 
 # Fabre William PNL
 
-## Exercice 1 Environnement de developpement de l'UE
+##   Exercice 1 Environnement de developpement de l'UE
 # Question 1)
 il y a des probles de dependances sur /dev/sdb, /root et le filesystem.
 Du coup il faut creer un deuxieme disque pour que sdb fonctionne.
@@ -13,7 +13,7 @@ Nous allons creer un deuxieme disque dans notre HOME.
 # Question 3)
 OK
 
-## Exercice 2 Configuration et compilation du noyau
+##   Exercice 2 Configuration et compilation du noyau
 # Question 1)
 Copier depuis www.kernel.org
 On utilise make nconfig pour la configuration
@@ -45,7 +45,7 @@ Il n'y a aucun module de charger car les modules sont des drivers que l'on
 peut charger et decharger dynamiquement de la memoire et aucun module n'a
 ete precise lors du make. Donc aucun module ne sera present.
 
-## Exercice 3 Le processus init
+##   Exercice 3 Le processus init
 
 # Question 1)
 OK
@@ -79,22 +79,35 @@ exec pour changer de programme et garder le meme pid car on a pris le pid 0
 avec notre bash et il nous suffira de faire exec de init pour finaliser le
 lancement.
 
-## Exercice4 Comprendre le fonctionnement du initramfs 
+##   Exercice 4 Comprendre le fonctionnement du initramfs 
 
-#Question 1)
+# Question 1)
 il faut utiliser celui de la machine hote pas de la VM.
 zcat /boot/initramfs-linux.img | cpio -i -d -H newc --no-absolute-filenames
 On y trouve un fichier init.
 
-#Question 2)
+# Question 2)
 
 Empeche le link avec avec des librairies partagees si on est sur un systeme
-qui supporte le link dynamique
+qui supporte le link dynamique. Le code doit etre compile avec toutes ses 
+dependances pour etre autonome.
 
 
-#Question 3)
+# Question 3)
 
-#Question 4)
+https://blog.feabhas.com/2014/04/static-and-dynamic-libraries-on-linux/
+
+gcc -Wall -fPIC $^ -o $@ -L /home/tchi/Lecture/TME_PNL/TP_03/EXO-05 cron_func.so -Wl,-rpath /home/tchi/Lecture/TME_PNL/TP_03/EXO-05
+
+fPIC :
+Wl,rpath=/XXX/XXX :
+-L :
+-l :
+
+# Question 4)
+
+
+##   Exercice 5
 
 
 
