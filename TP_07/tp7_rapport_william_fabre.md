@@ -61,5 +61,3 @@ But testers of -mm and linux-next should be aware that breakages are more common
 # Question 1
 # Question 2
 # Question 3
-
-
