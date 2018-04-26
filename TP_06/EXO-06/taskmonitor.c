@@ -156,17 +156,21 @@ static long etx_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	switch(cmd) {
 		case WR_VALUE:
-			res = copy_from_user(&value ,(int32_t*) arg, sizeof(value));
+			res = copy_from_user(&value ,(int32_t*) arg,
+					sizeof(value));
 			printk(KERN_INFO "Value = %d\n", value);
 			break;
 		case RD_VALUE:
-			res = copy_to_user((int32_t*) arg, &value, sizeof(value));
+			res = copy_to_user((int32_t*) arg, &value,
+					sizeof(value));
 			break;
 		case HELLO:
-			res = copy_to_user((char*) arg, string, strlen(string));
+			res = copy_to_user((char*) arg, string,
+					strlen(string));
 			break;
 		case WHO:
-			res = copy_from_user(string, (char*) arg, sizeof(string));
+			res = copy_from_user(string, (char*) arg,
+					sizeof(string));
 			printk(KERN_INFO "Value = %s\n", string);
 			break;
 		case GET_SAMPLE:

@@ -157,9 +157,7 @@ static int monitor_init(void)
 		goto abort;
 	}
 
-
 	tm_obj = kobject_create_and_add("directory_monitor", kernel_kobj);
-
 	if(sysfs_create_file(tm_obj, &tm_attr.attr)){
 		printk(KERN_INFO"Cannot create sysfs file\n");
 		goto r_sysfs;

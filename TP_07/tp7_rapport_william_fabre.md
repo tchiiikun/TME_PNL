@@ -25,18 +25,118 @@ But testers of -mm and linux-next should be aware that breakages are more common
 
 
 # Question 2
+Voir code. ne pas oublier d'initialiser la liste et de supprimer a la fin.
+ajout d'une methode qui print tous les elements a la fin dans le exit pour
+tester.
 # Question 3
+Voir code. ne pas oublier le kobject put et le sys remove.
 # Question 4
+[root@pnl-tp ~]# ./ins.sh
+[  879.864981] Monitoring module loaded
+[root@pnl-tp ~]# cat /sys/kernel/directory_monitor/taskmonitor
+[  884.683417] pid:267 num:0 : usr 1 sys 3
+[  884.685308] pid:267 num:1 : usr 1 sys 3
+[  884.686911] pid:267 num:2 : usr 1 sys 3
+[  884.688221] pid:267 num:3 : usr 1 sys 3
+
 
 ## Exercice 2 : Récupération automatique de la mémoire, le shrinker
+https://lwn.net/Articles/527210/
+https://fr.wikipedia.org/wiki/Non_uniform_memory_access
+https://elixir.bootlin.com/linux/v4.9.85/source/include/linux/shrinker.h#L49
 # Question 1
-# Question 2
-# Question 3
+/* Compte le nombre que l'on peut degommer */
+unsigned long (*count_objects)(struct shrinker *,
+				       struct shrink_control *sc);
+
+/* Degomme et rend le nombre qu'on a degomme */
+unsigned long (*scan_objects)(struct shrinker *,
+				      struct shrink_control *sc);
+
+
+int seeks;	/* seeks to recreate an obj */
+long batch;	/* reclaim batch size, 0 = default */
+unsigned long flags; /* pour le NUMA, non uniform memory access */
+
+/* These are for internal use */
+struct list_head list;
+/* objs pending delete, per node */
+atomic_long_t *nr_deferred;
+
+
+
+# Question 2 et Question 3
+On cree autant d'objet que l'on veut, des que la pression memoire arrive on
+supprime tous les objets. On continue a creer des objets.
+Affichage : Debut et fin de destruction.
+Au desarmement du module : affichage du total cree et total detruit. et nomnbre
+de vivants.
+
 
 
 ## Exercice 3 : Gestion efficace de la mémoire avec les slab
+https://lwn.net/Articles/319686/
+toto
 # Question 1
+Probleme :
+struct task_sample {
+	struct list_head list;
+	cputime_t utime;
+	cputime_t stime;
+};
+	struct task_sample *q = kmalloc(sizeof(struct task_sample), GFP_KERNEL);
+	pr_info("sizeof(struct task_sample) :%lu\n", sizeof(struct task_sample)); // RENVOIE 32
+	pr_info("ksize(q):%lu\n", ksize(q)); // RENVOIE 32
+	kfree(q);
+
+Il y avait un probleme cela ne fonctionnait pas au debut. il a fallut rajouter
+un int dans la structure pou faire apparaitre le probleme.
+struct task_sample {
+	struct list_head list;
+	cputime_t utime;
+	cputime_t stime;
+	int i;
+};
+
+On obtient desormais
+[   56.034134] sizeof(struct task_sample) :40
+[   56.036232] ksize(q):64
+[   56.037509] Monitoring module unloaded
+
+/**
+ * ksize - get the actual amount of memory allocated for a given object
+ * @objp: Pointer to the object
+ *
+ * kmalloc may internally round up allocations and return more memory
+ * than requested. ksize() can be used to determine the actual amount of
+ * memory allocated. The caller may use this additional memory, even though
+ * a smaller amount of memory was initially specified with the kmalloc call.
+ * The caller must guarantee that objp points to a valid object previously
+ * allocated with either kmalloc() or kmem_cache_alloc(). The object
+ * must not be freed during the duration of the call.
+ */
+size_t ksize(const void *objp);
+
+On aligne sur les puissances de 2 donc vu que notre strcture est desaligne et
+fait 40 oct on va realigner sur du 64 pour qu'en memoire ce soit toujours
+aligne sur une puissance de 2.
+
+
 # Question 2
+https://argp.github.io/2012/01/03/linux-kernel-heap-exploitation/
+http://phrack.org/issues/66/8.html#article
+http://phrack.org/issues/66/15.html#article
+
+Un acces exclisif existe entre les 3 types d'allocateurs, ils sont dans la
+gestion de la memoire juste au dessus de l'allocateur de page du systeme.
+(i.e. you can only have one of them enabled/compiled in your kernel)
+
+WIKIPEDIA: Slab allocation is a memory management mechanism intended for the efficient memory allocation of kernel objects. It eliminates fragmentation caused by allocations and deallocations. The technique is used to retain allocated memory that contains a data object of a certain type for reuse upon subsequent allocations of objects of the same type. 
+
+SLAB:
+SLOB:
+SLUB:
+
 # Question 3
 
 
