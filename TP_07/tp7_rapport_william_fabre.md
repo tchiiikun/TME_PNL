@@ -133,9 +133,16 @@ gestion de la memoire juste au dessus de l'allocateur de page du systeme.
 
 WIKIPEDIA: Slab allocation is a memory management mechanism intended for the efficient memory allocation of kernel objects. It eliminates fragmentation caused by allocations and deallocations. The technique is used to retain allocated memory that contains a data object of a certain type for reuse upon subsequent allocations of objects of the same type. 
 
-SLAB:
-SLOB:
-SLUB:
+	"A slab consists of one or more pages of virtually contiguous
+        memory carved up into equal-size chunks, with a reference count
+        indicating how many of those chunks have been allocated."
+	Page 5, 3.2 Slabs. [1]
+
+Le but est de limiter la fragmentation memoire. et grandement simplifier les
+allocation, et retrait en cas de pression memoire.
+SLAB: Le bon vieux.
+SLOB: Le maigrichon.
+SLUB: L'actuel.
 
 # Question 3
 
