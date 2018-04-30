@@ -164,7 +164,7 @@ struct task_sample *save_sample(void)
 {
 	struct task_sample* ts;
 
-	ts = kmem_cache_alloc(cached_ts, GFP_KERNEL);
+	ts = kmem_cache_alloc(cached_ts, GFP_NOFS);
 	kref_init(&ts->refcount);
 
 	if (!ts){
@@ -241,9 +241,12 @@ static ssize_t sysfs_show(struct kobject *kobj,
 
 	/* mutex_lock(&tm->lock);*/
 	list_for_each_entry_reverse(ts, &(tm->head.list), list){
-		kref_get(&ts->refcount);
-		sprintf(tmp, "pid :%hu num :%d : usr %lu sys %lu \n",
-				pid, i++, ts->utime, ts->stime);
+
+		if (kref_get_unless_zero(&ts->refcount) != 0){
+			sprintf(tmp, "pid :%hu num :%d : usr %lu sys %lu \n",
+					pid, i++, ts->utime, ts->stime);
+		}
+
 		strcat(buf, tmp);
 		kref_put(&ts->refcount, task_sample_release);
 	}
@@ -285,9 +288,11 @@ static int debugfs_task_monitor_show(struct seq_file *m, void *v)
 	pid_t pid = pid_nr(tm->pid);
 
 	list_for_each_entry_reverse(ts, &(tm->head.list), list){
-		kref_get(&ts->refcount);
-		seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
-				pid, i++, ts->utime, ts->stime);
+
+		if (kref_get_unless_zero(&ts->refcount) != 0){
+			seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
+					pid, i++, ts->utime, ts->stime);
+		}
 		kref_put(&ts->refcount, task_sample_release);
 	}
 	return 0;
@@ -307,7 +312,7 @@ static int monitor_init(void)
 
 	cached_ts = KMEM_CACHE(task_sample, 0);
 
-	my_mempool = mempool_create(200,
+	my_mempool = mempool_create(5,
 			mempool_alloc_slab,
 			mempool_free_slab,
 			cached_ts);
