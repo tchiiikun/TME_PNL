@@ -47,11 +47,11 @@ https://elixir.bootlin.com/linux/v4.9.85/source/include/linux/shrinker.h#L49
 # Question 1
 /* Compte le nombre que l'on peut degommer */
 unsigned long (*count_objects)(struct shrinker *,
-				       struct shrink_control *sc);
+		struct shrink_control *sc);
 
 /* Degomme et rend le nombre qu'on a degomme */
 unsigned long (*scan_objects)(struct shrinker *,
-				      struct shrink_control *sc);
+		struct shrink_control *sc);
 
 
 int seeks;	/* seeks to recreate an obj */
@@ -84,10 +84,10 @@ struct task_sample {
 	cputime_t utime;
 	cputime_t stime;
 };
-	struct task_sample *q = kmalloc(sizeof(struct task_sample), GFP_KERNEL);
-	pr_info("sizeof(struct task_sample) :%lu\n", sizeof(struct task_sample)); // RENVOIE 32
-	pr_info("ksize(q):%lu\n", ksize(q)); // RENVOIE 32
-	kfree(q);
+struct task_sample *q = kmalloc(sizeof(struct task_sample), GFP_KERNEL);
+pr_info("sizeof(struct task_sample) :%lu\n", sizeof(struct task_sample)); // RENVOIE 32
+pr_info("ksize(q):%lu\n", ksize(q)); // RENVOIE 32
+kfree(q);
 
 Il y avait un probleme cela ne fonctionnait pas au debut. il a fallut rajouter
 un int dans la structure pou faire apparaitre le probleme.
@@ -104,18 +104,18 @@ On obtient desormais
 [   56.037509] Monitoring module unloaded
 
 /**
- * ksize - get the actual amount of memory allocated for a given object
- * @objp: Pointer to the object
- *
- * kmalloc may internally round up allocations and return more memory
- * than requested. ksize() can be used to determine the actual amount of
- * memory allocated. The caller may use this additional memory, even though
- * a smaller amount of memory was initially specified with the kmalloc call.
- * The caller must guarantee that objp points to a valid object previously
- * allocated with either kmalloc() or kmem_cache_alloc(). The object
- * must not be freed during the duration of the call.
- */
-size_t ksize(const void *objp);
+* ksize - get the actual amount of memory allocated for a given object
+* @objp: Pointer to the object
+* objp);
+*
+* kmalloc may internally round up allocations and return more memory
+* than requested. ksize() can be used to determine the actual amount of
+* memory allocated. The caller may use this additional memory, even though
+* a smaller amount of memory was initially specified with the kmalloc call.
+* The caller must guarantee that objp points to a valid object previously
+* allocated with either kmalloc() or kmem_cache_alloc(). The object
+* must not be freed during the duration of the call.
+*/
 
 On aligne sur les puissances de 2 donc vu que notre strcture est desaligne et
 fait 40 oct on va realigner sur du 64 pour qu'en memoire ce soit toujours
@@ -133,85 +133,127 @@ http://www.secretmango.com/jimb/Whitepapers/slabs/slab.html
 http://students.mimuw.edu.pl/ZSO/Wyklady/05_pamiec/5_pamiec_en.html
 
 Un acces exclisif existe entre les 3 types d'allocateurs, ils sont dans la
-gestion de la memoire juste au dessus de l'allocateur de page du systeme.
+	gestion de la memoire juste au dessus de l'allocateur de page du systeme.
 (i.e. you can only have one of them enabled/compiled in your kernel)
 
-WIKIPEDIA: Slab allocation is a memory management mechanism intended for the efficient memory allocation of kernel objects. It eliminates fragmentation caused by allocations and deallocations. The technique is used to retain allocated memory that contains a data object of a certain type for reuse upon subsequent allocations of objects of the same type. 
+	WIKIPEDIA: Slab allocation is a memory management mechanism intended for the efficient memory allocation of kernel objects. It eliminates fragmentation caused by allocations and deallocations. The technique is used to retain allocated memory that contains a data object of a certain type for reuse upon subsequent allocations of objects of the same type. 
 
 	"A slab consists of one or more pages of virtually contiguous
-        memory carved up into equal-size chunks, with a reference count
-        indicating how many of those chunks have been allocated."
+	memory carved up into equal-size chunks, with a reference count
+	indicating how many of those chunks have been allocated."
 	Page 5, 3.2 Slabs. [1]
 
-Le but est de limiter la fragmentation memoire. et grandement simplifier les
-allocation, et retrait en cas de pression memoire.
-SLAB: Le bon vieux.
-SLOB: Le maigrichon.
-SLUB: L'actuel.
-SLQB: Perf HPC
+	Le but est de limiter la fragmentation memoire. et grandement simplifier les
+	allocation, et retrait en cas de pression memoire.
+	SLAB: Le bon vieux.
+	SLOB: Le maigrichon.
+	SLUB: L'actuel.
+	SLQB: Perf HPC
 
 # Question 3
-	#define KMEM_CACHE(__struct, __flags) kmem_cache_create(#__struct,\
+#define KMEM_CACHE(__struct, __flags) kmem_cache_create(#__struct,\
 		sizeof(struct __struct), __alignof__(struct __struct),\
 		(__flags), NULL)
 
-/**
- * kmem_cache_create - Create a cache.
- * @name: A string which is used in /proc/slabinfo to identify this cache.
- * @size: The size of objects to be created in this cache.
- * @align: The required alignment for the objects.
- * @flags: SLAB flags
- * @ctor: A constructor for the objects.
- */
+	/**
+	 * kmem_cache_create - Create a cache.
+	 * @name: A string which is used in /proc/slabinfo to identify this cache.
+	 * @size: The size of objects to be created in this cache.
+	 * @align: The required alignment for the objects.
+	 * @flags: SLAB flags
+	 * @ctor: A constructor for the objects.
+	 */
 
-struct kmem_cache *
+	struct kmem_cache *
 kmem_cache_create (const char *name, size_t size,
-       size_t align, slab_flags_t flags, void (*ctor)(void*))
+		size_t align, slab_flags_t flags, void (*ctor)(void*))
 
 
 ## Exercice 4 : Pré-allocation de la mémoire avec les mempools
 
 # Question 1
-https://lwn.net/Articles/22909/
+	https://lwn.net/Articles/22909/
 
 # Question 2
-Il ne nous faut pas implementer grand chose grace a :
-" Creators of mempools will often want to use the slab allocator to do the actual object allocation and deallocation. To do that, create the slab, pass it in to mempool_create() as the pool_data value, and give mempool_alloc_slab and mempool_free_slab as the allocation and deallocation functions."
+	Il ne nous faut pas implementer grand chose grace a :
+	" Creators of mempools will often want to use the slab allocator to do the actual object allocation and deallocation. To do that, create the slab, pass it in to mempool_create() as the pool_data value, and give mempool_alloc_slab and mempool_free_slab as the allocation and deallocation functions."
+
+
+[root@pnl-tp ~]# ./ins.sh 
+[   57.200788] Monitoring module loaded
+[root@pnl-tp ~]# ./rm.sh 
+[   60.005933] total size: 96 ---- sizeof struct : 32
+[   60.008161] nb instances : 46
+[   60.009223] C= 46, D= 0
+[   60.010491] Monitoring module unloaded
+[root@pnl-tp ~]# ./ins.sh 
+[   65.251627] Monitoring module loaded
+[root@pnl-tp ~]# find /usr /var -type f -print0 | xargs -0 cat > /dev/null
+[  122.596903] Start deletion
+[  122.599000] End deletion
+[  138.071145] Start deletion
+[  138.071971] End deletion
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+cat: write error: No space left on device
+[root@pnl-tp ~]# 
+[root@pnl-tp ~]# 
+[root@pnl-tp ~]# 
+[root@pnl-tp ~]# ./rm.sh 
+[  166.412141] total size: 96 ---- sizeof struct : 32
+[  166.413473] nb instances : 472
+[  166.414215] C= 1684, D= 1212
+[  166.415257] Monitoring module unloaded
 
 
 ## Exercice 5 : Récupération « au besoin » de la mémoire : kref
-https://elixir.bootlin.com/linux/v4.9.85/source/Documentation/kref.txt
+	https://elixir.bootlin.com/linux/v4.9.85/source/Documentation/kref.txt
 
 # Question 1
-struct task_sample {
-	struct list_head list; 	// 16
-	cputime_t utime;	// 8
-	struct kref refcount;
-	cputime_t stime;	// 8
-};
+	struct task_sample {
+		struct list_head list; 	// 16
+		cputime_t utime;	// 8
+		struct kref refcount;
+		cputime_t stime;	// 8
+	};
 
 kref_init(&ts->refcount);
 
 # Question 2
 http://www.kroah.com/linux/talks/ols_2004_kref_talk/
 (THX TO KROAH)
-Il faut utiliser kref_get, kref_put et release.
+	Il faut utiliser kref_get, kref_put et release.
 
 # Question 3
-1 seul reference sinon il passe dans le destructeur et comme ca au besoin il
-est supprime.
+	1 reference au minimum, car meme s'il est passe dans le liberateur, il
+	reste encore la reference posee par la personne qui affiche.
 
 
 ## Exercice 6 : Accès aux informations de monitoring depuis l’espace utilisateur
+	https://elixir.bootlin.com/linux/v4.9.85/source/mm/kmemleak.c
+https://elixir.bootlin.com/linux/v4.9.85/source/arch/arm/kernel/dma.c#L281
+https://lwn.net/Articles/22359/
+https://lwn.net/Articles/115405/
+https://lwn.net/Articles/22355/
+https://github.com/chadversary/debugfs-tutorial/blob/master/example1/debugfs_example1.c
+https://en.wikipedia.org/wiki/Debugfs
+
 # Question 1
+
 -Pour creer un directory, si parent est NULL alors racine == debuhgfs:
 struct dentry *debugfs_create_dir(const char *name, struct dentry *parent);
 
 -Pour creer un fichier :
 struct dentry *debugfs_create_file_size(const char *name, umode_t mode,
-				struct dentry *parent, void *data,
-				const struct file_operations *fops,
-				loff_t file_size);
+		struct dentry *parent, void *data,
+		const struct file_operations *fops,
+		loff_t file_size);
 
 -Pour detruire:
 void debugfs_remove(struct dentry *dentry);
@@ -232,7 +274,7 @@ static const struct file_operations taskmonitor_fops = {
 
 # Question 3
 seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
-				pid, i++, ts->utime, ts->stime);
+		pid, i++, ts->utime, ts->stime);
 
 Du coup quand on cat ca affiche bien la liste et quand on vi dans le fichier
 aussi.

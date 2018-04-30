@@ -4,6 +4,7 @@
 #include <linux/slab.h>
 #include <linux/shrinker.h>
 #include <linux/mempool.h>
+#include <linux/debugfs.h>
 
 /* MODULE DECLARATION*/
 MODULE_DESCRIPTION("A process monitor");
@@ -74,6 +75,21 @@ static struct shrinker my_shrinker = {
 /* Kref declaration */
 void task_sample_release(struct kref *kref);
 
+/* Debugfs declration for dentry */
+struct dentry* my_dentry;
+
+static int debugfs_task_monitor_show(struct seq_file *m, void *v);
+static int debugfs_taskmonitor_open(struct inode *inode, struct file *file);
+
+static const struct file_operations taskmonitor_fops = {
+	.open		= debugfs_taskmonitor_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+
+
+
 unsigned long
 my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {
@@ -90,11 +106,8 @@ my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 
 	/* mutex_lock(&tm->lock);*/
 	list_for_each_entry_safe(ts, tmp,  &(tm->head.list), list){
-		list_del(&ts->list);
 		kref_put(&ts->refcount, task_sample_release);
 		/* kmem_cache_free(cached_ts, ts);*/
-		total_destroyed++;
-		tm->nb_samples--;
 		res++;
 	}
 	/* mutex_unlock(&tm->lock);*/
@@ -170,8 +183,6 @@ struct task_sample *save_sample(void)
 
 	return ts;
 out:
-	kmem_cache_free(cached_ts, ts);
-	kref_put(&ts->refcount, task_sample_release);
 	return NULL;
 }
 
@@ -180,8 +191,12 @@ void task_sample_release(struct kref *kref)
 	struct task_sample *t;
 
 	t = container_of(kref, struct task_sample, refcount);
+
+	list_del(&t->list);
 	kmem_cache_free(cached_ts, t);
 
+	total_destroyed++;
+	tm->nb_samples--;
 }
 
 int monitor_fn(void *data)
@@ -194,9 +209,9 @@ int monitor_fn(void *data)
 			return -EINTR;
 
 		ex5_crash_tester = save_sample();
-		pr_info("usr %lu sys %lu\n",
-				ex5_crash_tester->utime,
-				ex5_crash_tester->stime);
+		/* pr_info("usr %lu sys %lu\n",*/
+		/*                 ex5_crash_tester->utime,*/
+		/*                 ex5_crash_tester->stime);*/
 	}
 	return 0;
 }
@@ -220,20 +235,21 @@ static ssize_t sysfs_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
 	int i = 0;
+	char tmp[64];
 	struct task_sample* ts;
 	pid_t pid = pid_nr(tm->pid);
 
 	/* mutex_lock(&tm->lock);*/
-	
 	list_for_each_entry_reverse(ts, &(tm->head.list), list){
-		if (i == PAGE_SIZE)
-			return 0;
-		pr_info("pid:%hu num:%d : usr %lu sys %lu\n",
+		kref_get(&ts->refcount);
+		sprintf(tmp, "pid :%hu num :%d : usr %lu sys %lu \n",
 				pid, i++, ts->utime, ts->stime);
+		strcat(buf, tmp);
+		kref_put(&ts->refcount, task_sample_release);
 	}
 	/* mutex_unlock(&tm->lock);*/
+	return strlen(buf);
 
-	return 0;
 }
 
 static ssize_t sysfs_store(struct kobject *kobj,
@@ -262,6 +278,26 @@ static ssize_t sysfs_store(struct kobject *kobj,
 	return res;
 }
 
+static int debugfs_task_monitor_show(struct seq_file *m, void *v)
+{
+	int i = 0;
+	struct task_sample* ts;
+	pid_t pid = pid_nr(tm->pid);
+
+	list_for_each_entry_reverse(ts, &(tm->head.list), list){
+		kref_get(&ts->refcount);
+		seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
+				pid, i++, ts->utime, ts->stime);
+		kref_put(&ts->refcount, task_sample_release);
+	}
+	return 0;
+}
+
+static int debugfs_taskmonitor_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, debugfs_task_monitor_show, NULL);
+}
+
 static int monitor_init(void)
 {
 
@@ -271,7 +307,7 @@ static int monitor_init(void)
 
 	cached_ts = KMEM_CACHE(task_sample, 0);
 
-	my_mempool = mempool_create(42,
+	my_mempool = mempool_create(200,
 			mempool_alloc_slab,
 			mempool_free_slab,
 			cached_ts);
@@ -287,6 +323,12 @@ static int monitor_init(void)
 		err = PTR_ERR(monitor_thread);
 		goto r_thread;
 	}
+
+	my_dentry = debugfs_create_file("taskmonitor", S_IRUGO, NULL, NULL,
+				     &taskmonitor_fops);
+
+	if (!my_dentry)
+		pr_warn("Failed to create the debugfs taskmonitor file\n");
 
 	tm_obj = kobject_create_and_add("directory_monitor", kernel_kobj);
 	if (sysfs_create_file(tm_obj, &tm_attr.attr)){
@@ -326,7 +368,6 @@ static void monitor_exit(void)
 	pr_info("C= %d, D= %d\n", total_created, total_destroyed);
 
 	list_for_each_entry_safe(ts, tmp,  &(tm->head.list), list){
-		list_del(&ts->list);
 		/* kmem_cache_free(cached_ts, ts);*/
 		kref_put(&ts->refcount, task_sample_release);
 	}
@@ -337,8 +378,10 @@ static void monitor_exit(void)
 	sysfs_remove_file(kernel_kobj, &tm_attr.attr);
 	run = false;
 	unregister_shrinker(&my_shrinker);
-	kmem_cache_destroy(cached_ts);
 	mempool_destroy(my_mempool);
+	kmem_cache_destroy(cached_ts);
+
+	debugfs_remove(my_dentry);
 
 	pr_info("Monitoring module unloaded\n");
 }
