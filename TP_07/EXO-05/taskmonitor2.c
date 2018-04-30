@@ -18,21 +18,29 @@ module_param(frequency, uint, 0600);
 
 /******************************* STRUCTURE ***********************************/
 /****************************** DECLARATION **********************************/
-static struct task_struct *monitor_thread;
 
 static struct task_sample {
 	struct list_head list; 	// 16
 	cputime_t utime;	// 8
 	struct kref refcount;
 	cputime_t stime;	// 8
-} *ex5_crash_tester; // doing dirty stuff check kref.
+};
 
 static struct task_monitor {
+	struct list_head tm_list;
 	struct task_sample head;
 	struct mutex lock;
 	struct pid *pid;
 	int nb_samples;
-} *tm;
+};
+
+static struct task_struct *monitor_thread;
+
+static struct task_sample  *ex5_crash_tester; // doing dirty stuff check kref.
+
+static struct my_tasks{
+	struct task_monitor tm_head;
+} *all_tasks;
 
 /* Mempool declaration */
 static mempool_t *my_mempool;
@@ -94,6 +102,7 @@ static const struct file_operations taskmonitor_fops = {
 my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {
 	int res;
+	struct task_monitor *tmp_tm, *p;
 	struct task_sample *ts, *tmp;
 	pr_info("Start deletion\n");
 	res = 0;
@@ -101,16 +110,16 @@ my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 	if (!(sc->gfp_mask & __GFP_FS))
 		return SHRINK_STOP;
 
-	if (mutex_is_locked(&tm->lock))
-		return SHRINK_STOP;
-
-	/* mutex_lock(&tm->lock);*/
-	list_for_each_entry_safe(ts, tmp,  &(tm->head.list), list){
-		kref_put(&ts->refcount, task_sample_release);
-		/* kmem_cache_free(cached_ts, ts);*/
-		res++;
+	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		if (mutex_is_locked(&tmp_tm->lock))
+			return SHRINK_STOP;
+		list_for_each_entry_safe(ts, tmp,  &(tmp_tm->head.list), list){
+			/* kmem_cache_free(cached_ts, ts);*/
+			kref_put(&ts->refcount, task_sample_release);
+			res++;
+		}
 	}
-	/* mutex_unlock(&tm->lock);*/
 	pr_info("End deletion\n");
 	return res;
 }
@@ -118,7 +127,14 @@ my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 	unsigned long
 my_shrink_count(struct shrinker *shrink, struct shrink_control *sc)
 {
-	return tm->nb_samples;
+	int res = 0;
+	struct task_monitor *tmp_tm, *p;
+
+	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		res += tmp_tm->nb_samples;
+	}
+	return res;
 }
 
 
@@ -160,7 +176,7 @@ void print_sample(struct task_monitor *tm)
 		pr_info("%hd usr %lu sys %lu\n", pid, ts.utime, ts.stime);
 }
 
-struct task_sample *save_sample(void)
+struct task_sample *save_sample(struct task_monitor* tm)
 {
 	struct task_sample* ts;
 
@@ -172,7 +188,6 @@ struct task_sample *save_sample(void)
 		goto out;
 	}
 
-	/* mutex_lock(&tm->lock);*/
 	if (kref_get_unless_zero(&ts->refcount) > 0){
 		get_sample(tm, ts);
 		list_add_tail(&ts->list, &(tm->head.list));
@@ -180,7 +195,6 @@ struct task_sample *save_sample(void)
 		tm->nb_samples++;
 	}
 	kref_put(&ts->refcount, task_sample_release);
-	/* mutex_unlock(&tm->lock);*/
 
 	return ts;
 out:
@@ -190,14 +204,13 @@ out:
 void task_sample_release(struct kref *kref)
 {
 	struct task_sample *t;
+	struct task_monitor* tm;
 
 	t = container_of(kref, struct task_sample, refcount);
+	tm = container_of(t, struct task_monitor, head);
 
-	/* mutex_lock(&tm->lock);*/
 	list_del(&t->list);
 	kmem_cache_free(cached_ts, t);
-
-	/* mutex_unlock(&tm->lock);*/
 
 	total_destroyed++;
 	tm->nb_samples--;
@@ -205,23 +218,31 @@ void task_sample_release(struct kref *kref)
 
 int monitor_fn(void *data)
 {
+	struct task_monitor *tmp_tm, *p;
+
 	while (!kthread_should_stop()) {
 
 		set_current_state(TASK_INTERRUPTIBLE);
 
 		if (schedule_timeout(max(HZ/frequency/20, 1U/20)))
 			return -EINTR;
+		list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
+				tm_list){
 
-		ex5_crash_tester = save_sample();
-		/* pr_info("usr %lu sys %lu\n",*/
-		/*                 ex5_crash_tester->utime,*/
-		/*                 ex5_crash_tester->stime);*/
+			ex5_crash_tester = save_sample(tmp_tm);
+			/* pr_info("usr %lu sys %lu\n",*/
+			/*                 ex5_crash_tester->utime,*/
+			/*                 ex5_crash_tester->stime);*/
+
+		}
 	}
 	return 0;
 }
 
 int monitor_pid(pid_t pid)
 {
+	struct task_monitor *tmp;
+
 	struct pid *p = find_get_pid(pid);
 
 	if (!p) {
@@ -229,9 +250,12 @@ int monitor_pid(pid_t pid)
 		return -ESRCH;
 	}
 
-	tm = kmalloc(sizeof(*tm), GFP_KERNEL);
-	tm->pid = p;
-
+	tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);
+	mutex_init(&tmp->lock);
+	tmp->nb_samples = 0;
+	tmp->pid = p;
+	INIT_LIST_HEAD(&tmp->head.list);
+	list_add_tail(&tmp->tm_list, &all_tasks->tm_head.tm_list);
 	return 0;
 }
 
@@ -241,26 +265,31 @@ static ssize_t sysfs_show(struct kobject *kobj,
 	int i = 0;
 	int count = 0;
 	struct task_sample* ts;
-	pid_t pid = pid_nr(tm->pid);
+	struct task_monitor *tmp_tm, *tmp_p;
 
-	/* mutex_lock(&tm->lock);*/
-	list_for_each_entry_reverse(ts, &(tm->head.list), list){
+	list_for_each_entry_safe(tmp_tm, tmp_p, &all_tasks->tm_head.tm_list,
+			tm_list){
 
-		if (kref_get_unless_zero(&ts->refcount) > 0){
-			if (count == PAGE_SIZE)
-				return count;
-			scnprintf(buf+count,
-					PAGE_SIZE - count,
-					"pid:%hu num:%d usr:%lu sys:%lu\n",
-					pid, i++, ts->utime, ts->stime);
-			count = strlen(buf);
+		pid_t pid = pid_nr(tmp_tm->pid);
+
+		list_for_each_entry_reverse(ts, &(tmp_tm->head.list), list){
+
+			if (kref_get_unless_zero(&ts->refcount) > 0){
+				if (count == PAGE_SIZE)
+					return count;
+				scnprintf(buf+count,
+						PAGE_SIZE - count,
+						"pid:%hu num:%d usr:%lu sys:%lu\n",
+						pid,
+						i++,
+						ts->utime,
+						ts->stime);
+				count = strlen(buf);
+				kref_put(&ts->refcount, task_sample_release);
+			}
 		}
-		kref_put(&ts->refcount, task_sample_release);
 	}
-	/* mutex_unlock(&tm->lock);*/
-
 	return strlen(buf);
-
 }
 
 static ssize_t sysfs_store(struct kobject *kobj,
@@ -293,18 +322,26 @@ static int debugfs_task_monitor_show(struct seq_file *m, void *v)
 {
 	int i = 0;
 	struct task_sample* ts;
-	pid_t pid = pid_nr(tm->pid);
+	struct task_monitor *tmp_tm, *tmp_p;
 
-	list_for_each_entry_reverse(ts, &(tm->head.list), list){
-
-		if (kref_get_unless_zero(&ts->refcount) > 0){
-			seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
-					pid, i++, ts->utime, ts->stime);
+	list_for_each_entry_safe(tmp_tm, tmp_p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		pid_t pid = pid_nr(tmp_tm->pid);
+		list_for_each_entry_reverse(ts, &(tmp_tm->head.list), list){
+			if (kref_get_unless_zero(&ts->refcount) > 0){
+				seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
+						pid,
+						i++,
+						ts->utime, 
+						ts->stime);
+				kref_put(&ts->refcount,
+						task_sample_release);
+			}
 		}
-		kref_put(&ts->refcount, task_sample_release);
 	}
 	return 0;
 }
+
 
 static int debugfs_taskmonitor_open(struct inode *inode, struct file *file)
 {
@@ -313,8 +350,12 @@ static int debugfs_taskmonitor_open(struct inode *inode, struct file *file)
 
 static int monitor_init(void)
 {
+	struct task_monitor *tmp, *p;
+	int err;
+	
+	INIT_LIST_HEAD(&all_tasks->tm_head.tm_list);
 
-	int err = monitor_pid(target);
+	err = monitor_pid(target);
 	if (err)
 		return err;
 
@@ -325,11 +366,16 @@ static int monitor_init(void)
 			mempool_free_slab,
 			cached_ts);
 
-	mutex_init(&tm->lock);
+	/* INIT_LIST_HEAD(&tm->head.list);*/
 
-	tm->nb_samples = 0;
+	/* list_for_each_entry(tmp, &all_tasks->tm_head.tm_list, tm_list){*/
+	/*         tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);*/
+	/*         INIT_LIST_HEAD(&tmp->head.list);*/
+	/*         mutex_init(&tmp->lock);*/
+	/*         tmp->nb_samples = 0;*/
+	/* }*/
 
-	INIT_LIST_HEAD(&tm->head.list);
+	/* INIT_LIST_HEAD(&tm->head.list);*/
 
 	monitor_thread = kthread_run(monitor_fn, NULL, "monitor_fn");
 	if (IS_ERR(monitor_thread)) {
@@ -358,8 +404,11 @@ static int monitor_init(void)
 r_sysfs:
 	kobject_put(tm_obj);
 r_thread:
-	put_pid(tm->pid);
-	kfree(tm);
+	list_for_each_entry_safe(tmp, p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		put_pid(tmp->pid);
+		kfree(tmp);
+	}
 	return err;
 
 }
@@ -368,25 +417,29 @@ module_init(monitor_init);
 static void monitor_exit(void)
 {
 	int i;
+	struct task_monitor *tmp_tm, *p;
 	struct task_sample *ts, *tmp;
 
 	i = 0;
 	if (monitor_thread)
 		kthread_stop(monitor_thread);
 
-	pr_info("total size: %lu ---- sizeof struct : %lu\n",
-			ksize(&tm->head),
-			sizeof(struct task_sample));
-	pr_info("nb instances : %d\n", tm->nb_samples);
+	/* pr_info("nb instances : %d\n", tm->nb_samples);*/
 	pr_info("C= %d, D= %d\n", total_created, total_destroyed);
 
-	list_for_each_entry_safe(ts, tmp,  &(tm->head.list), list){
-		/* kmem_cache_free(cached_ts, ts);*/
-		kref_put(&ts->refcount, task_sample_release);
+	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		list_for_each_entry_safe(ts, tmp,  &(tmp_tm->head.list), list){
+			/* kmem_cache_free(cached_ts, ts);*/
+			kref_put(&ts->refcount, task_sample_release);
+		}
 	}
 
-	put_pid(tm->pid);
-	kfree(tm);
+	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
+			tm_list){
+		put_pid(tmp_tm->pid);
+		kfree(tmp_tm);
+	}
 	kobject_put(tm_obj);
 	sysfs_remove_file(kernel_kobj, &tm_attr.attr);
 	run = false;
