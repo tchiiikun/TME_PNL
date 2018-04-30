@@ -49,10 +49,10 @@ static char my_string[256];
 static bool run;
 
 static ssize_t sysfs_store(struct kobject *kobj,
-struct kobj_attribute *attr, const char *buf, size_t count);
+		struct kobj_attribute *attr, const char *buf, size_t count);
 
 static ssize_t sysfs_show(struct kobject *kobj,
-struct kobj_attribute *attr, char *buf);
+		struct kobj_attribute *attr, char *buf);
 
 struct kobj_attribute tm_attr =
 __ATTR(taskmonitor, 0644, sysfs_show, sysfs_store);
@@ -90,7 +90,7 @@ static const struct file_operations taskmonitor_fops = {
 
 
 
-unsigned long
+	unsigned long
 my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 {
 	int res;
@@ -172,14 +172,15 @@ struct task_sample *save_sample(void)
 		goto out;
 	}
 
-	mutex_lock(&tm->lock);
-
-	get_sample(tm, ts);
-	list_add_tail(&ts->list, &(tm->head.list));
-	total_created++;
-	tm->nb_samples++;
-
-	mutex_unlock(&tm->lock);
+	/* mutex_lock(&tm->lock);*/
+	if (kref_get_unless_zero(&ts->refcount) > 0){
+		get_sample(tm, ts);
+		list_add_tail(&ts->list, &(tm->head.list));
+		total_created++;
+		tm->nb_samples++;
+	}
+	kref_put(&ts->refcount, task_sample_release);
+	/* mutex_unlock(&tm->lock);*/
 
 	return ts;
 out:
@@ -192,8 +193,11 @@ void task_sample_release(struct kref *kref)
 
 	t = container_of(kref, struct task_sample, refcount);
 
+	/* mutex_lock(&tm->lock);*/
 	list_del(&t->list);
 	kmem_cache_free(cached_ts, t);
+
+	/* mutex_unlock(&tm->lock);*/
 
 	total_destroyed++;
 	tm->nb_samples--;
@@ -235,22 +239,26 @@ static ssize_t sysfs_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
 	int i = 0;
-	char tmp[64];
+	int count = 0;
 	struct task_sample* ts;
 	pid_t pid = pid_nr(tm->pid);
 
 	/* mutex_lock(&tm->lock);*/
 	list_for_each_entry_reverse(ts, &(tm->head.list), list){
 
-		if (kref_get_unless_zero(&ts->refcount) != 0){
-			sprintf(tmp, "pid :%hu num :%d : usr %lu sys %lu \n",
+		if (kref_get_unless_zero(&ts->refcount) > 0){
+			if (count == PAGE_SIZE)
+				return count;
+			scnprintf(buf+count,
+					PAGE_SIZE - count,
+					"pid:%hu num:%d usr:%lu sys:%lu\n",
 					pid, i++, ts->utime, ts->stime);
+			count = strlen(buf);
 		}
-
-		strcat(buf, tmp);
 		kref_put(&ts->refcount, task_sample_release);
 	}
 	/* mutex_unlock(&tm->lock);*/
+
 	return strlen(buf);
 
 }
@@ -289,7 +297,7 @@ static int debugfs_task_monitor_show(struct seq_file *m, void *v)
 
 	list_for_each_entry_reverse(ts, &(tm->head.list), list){
 
-		if (kref_get_unless_zero(&ts->refcount) != 0){
+		if (kref_get_unless_zero(&ts->refcount) > 0){
 			seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
 					pid, i++, ts->utime, ts->stime);
 		}
@@ -330,7 +338,7 @@ static int monitor_init(void)
 	}
 
 	my_dentry = debugfs_create_file("taskmonitor", S_IRUGO, NULL, NULL,
-				     &taskmonitor_fops);
+			&taskmonitor_fops);
 
 	if (!my_dentry)
 		pr_warn("Failed to create the debugfs taskmonitor file\n");
