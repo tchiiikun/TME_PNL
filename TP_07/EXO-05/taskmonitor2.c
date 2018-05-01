@@ -6,6 +6,11 @@
 #include <linux/mempool.h>
 #include <linux/debugfs.h>
 
+#include "taskmonitor.h"
+#include "my_shrinker.h"
+#include "my_debugfs.h"
+#include "my_sysfs.h"
+
 /* MODULE DECLARATION*/
 MODULE_DESCRIPTION("A process monitor");
 MODULE_AUTHOR("William Fabre <contact@williamfabre.fr>");
@@ -16,35 +21,13 @@ static unsigned frequency = 1; /* sampling frequency */
 module_param(target, ushort, 0400);
 module_param(frequency, uint, 0600);
 
-/******************************* STRUCTURE ***********************************/
-/****************************** DECLARATION **********************************/
-
-static struct task_sample {
-	struct list_head list; 	// 16
-	cputime_t utime;	// 8
-	struct kref refcount;
-	cputime_t stime;	// 8
-};
-
-static struct task_monitor {
-	struct list_head tm_list;
-	struct task_sample head;
-	struct mutex lock;
-	struct pid *pid;
-	int nb_samples;
-};
-
+/* Structures */
 static struct task_struct *monitor_thread;
-
-static struct task_sample  *ex5_crash_tester; // doing dirty stuff check kref.
-
-static struct my_tasks{
-	struct task_monitor tm_head;
-} *all_tasks;
+static struct task_sample *ex5_crash_tester;
+static struct my_tasks *all_tasks;
 
 /* Mempool declaration */
 static mempool_t *my_mempool;
-
 static struct kmem_cache *cached_ts;
 
 /* total for check at module rm */
@@ -55,40 +38,21 @@ static int total_destroyed = 0;
 static struct kobject *tm_obj;
 static char my_string[256];
 static bool run;
-
-static ssize_t sysfs_store(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf, size_t count);
-
-static ssize_t sysfs_show(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf);
-
 struct kobj_attribute tm_attr =
 __ATTR(taskmonitor, 0644, sysfs_show, sysfs_store);
 
-
 /* Shrinker declaration */
-unsigned long
-my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc);
-
-unsigned long
-my_shrink_count(struct shrinker *shrink, struct shrink_control *sc);
-
 static struct shrinker my_shrinker = {
 	.count_objects = my_shrink_count,
 	.scan_objects = my_shrink_scan,
 	.seeks = DEFAULT_SEEKS,
 };
 
-
 /* Kref declaration */
 void task_sample_release(struct kref *kref);
 
 /* Debugfs declration for dentry */
 struct dentry* my_dentry;
-
-static int debugfs_task_monitor_show(struct seq_file *m, void *v);
-static int debugfs_taskmonitor_open(struct inode *inode, struct file *file);
-
 static const struct file_operations taskmonitor_fops = {
 	.open		= debugfs_taskmonitor_open,
 	.read		= seq_read,
@@ -96,27 +60,27 @@ static const struct file_operations taskmonitor_fops = {
 	.release	= single_release,
 };
 
-
-
-	unsigned long
-my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
+unsigned long my_shrink_scan(struct shrinker *shrink,
+		struct shrink_control *sc)
 {
 	int res;
-	struct task_monitor *tmp_tm, *p;
-	struct task_sample *ts, *tmp;
+	struct task_monitor *p_tm, *q_tm;
+	struct task_sample *p_ts, *q_ts;
+	struct list_head *s_list;
+	struct list_head *m_list = &(all_tasks->tm_head.tm_list);
+
 	pr_info("Start deletion\n");
 	res = 0;
 
 	if (!(sc->gfp_mask & __GFP_FS))
 		return SHRINK_STOP;
 
-	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		if (mutex_is_locked(&tmp_tm->lock))
+	list_for_each_entry_safe(p_tm, q_tm, m_list, tm_list){
+		if (mutex_is_locked(&p_tm->lock))
 			return SHRINK_STOP;
-		list_for_each_entry_safe(ts, tmp,  &(tmp_tm->head.list), list){
-			/* kmem_cache_free(cached_ts, ts);*/
-			kref_put(&ts->refcount, task_sample_release);
+		s_list = &(p_tm->head.list);
+		list_for_each_entry_safe(p_ts, q_ts, s_list, list){
+			kref_put(&p_ts->refcount, task_sample_release);
 			res++;
 		}
 	}
@@ -124,19 +88,18 @@ my_shrink_scan(struct shrinker *shrink, struct shrink_control *sc)
 	return res;
 }
 
-	unsigned long
-my_shrink_count(struct shrinker *shrink, struct shrink_control *sc)
+unsigned long my_shrink_count(struct shrinker *shrink,
+		struct shrink_control *sc)
 {
 	int res = 0;
-	struct task_monitor *tmp_tm, *p;
+	struct task_monitor *p_tm;
+	struct list_head *m_list = &(all_tasks->tm_head.tm_list);
 
-	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		res += tmp_tm->nb_samples;
+	list_for_each_entry(p_tm, m_list, tm_list){
+		res += p_tm->nb_samples;
 	}
 	return res;
 }
-
 
 /************************************ CODE ***********************************/
 
@@ -193,9 +156,8 @@ struct task_sample *save_sample(struct task_monitor* tm)
 		list_add_tail(&ts->list, &(tm->head.list));
 		total_created++;
 		tm->nb_samples++;
+		kref_put(&ts->refcount, task_sample_release);
 	}
-	kref_put(&ts->refcount, task_sample_release);
-
 	return ts;
 out:
 	return NULL;
@@ -218,31 +180,22 @@ void task_sample_release(struct kref *kref)
 
 int monitor_fn(void *data)
 {
-	struct task_monitor *tmp_tm, *p;
+	struct task_monitor *p_tm;
+	struct list_head *m_list = &(all_tasks->tm_head.tm_list);
 
 	while (!kthread_should_stop()) {
-
 		set_current_state(TASK_INTERRUPTIBLE);
-
 		if (schedule_timeout(max(HZ/frequency/20, 1U/20)))
 			return -EINTR;
-		list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
-				tm_list){
-
-			ex5_crash_tester = save_sample(tmp_tm);
-			/* pr_info("usr %lu sys %lu\n",*/
-			/*                 ex5_crash_tester->utime,*/
-			/*                 ex5_crash_tester->stime);*/
-
+		list_for_each_entry(p_tm, m_list, tm_list){
+			ex5_crash_tester = save_sample(p_tm);
 		}
 	}
 	return 0;
 }
 
-int monitor_pid(pid_t pid)
+int monitor_pid(pid_t pid, struct task_monitor *tm)
 {
-	struct task_monitor *tmp;
-
 	struct pid *p = find_get_pid(pid);
 
 	if (!p) {
@@ -250,42 +203,35 @@ int monitor_pid(pid_t pid)
 		return -ESRCH;
 	}
 
-	tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);
-	mutex_init(&tmp->lock);
-	tmp->nb_samples = 0;
-	tmp->pid = p;
-	INIT_LIST_HEAD(&tmp->head.list);
-	list_add_tail(&tmp->tm_list, &all_tasks->tm_head.tm_list);
+	tm->pid = p;
+
 	return 0;
 }
 
 static ssize_t sysfs_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
+	struct task_monitor *p_tm;
+	struct task_sample *p_ts;
+	struct list_head *s_list;
+	struct list_head *task_head = &(all_tasks->tm_head.tm_list);
+
 	int i = 0;
 	int count = 0;
-	struct task_sample* ts;
-	struct task_monitor *tmp_tm, *tmp_p;
 
-	list_for_each_entry_safe(tmp_tm, tmp_p, &all_tasks->tm_head.tm_list,
-			tm_list){
-
-		pid_t pid = pid_nr(tmp_tm->pid);
-
-		list_for_each_entry_reverse(ts, &(tmp_tm->head.list), list){
-
-			if (kref_get_unless_zero(&ts->refcount) > 0){
+	list_for_each_entry(p_tm, task_head, tm_list){
+		pid_t pid = pid_nr(p_tm->pid);
+		s_list = &(p_tm->head.list);
+		list_for_each_entry_reverse(p_ts, s_list, list){
+			if (kref_get_unless_zero(&p_ts->refcount) > 0){
 				if (count == PAGE_SIZE)
 					return count;
-				scnprintf(buf+count,
-						PAGE_SIZE - count,
+				scnprintf(buf+count, PAGE_SIZE - count,
 						"pid:%hu num:%d usr:%lu sys:%lu\n",
-						pid,
-						i++,
-						ts->utime,
-						ts->stime);
+						pid, i++, p_ts->utime,
+						p_ts->stime);
 				count = strlen(buf);
-				kref_put(&ts->refcount, task_sample_release);
+				kref_put(&p_ts->refcount, task_sample_release);
 			}
 		}
 	}
@@ -320,81 +266,93 @@ static ssize_t sysfs_store(struct kobject *kobj,
 
 static int debugfs_task_monitor_show(struct seq_file *m, void *v)
 {
+	struct task_monitor *p_tm;
+	struct task_sample *p_ts;
+	struct list_head *s_list;
+	struct list_head *task_head = &(all_tasks->tm_head.tm_list);
 	int i = 0;
-	struct task_sample* ts;
-	struct task_monitor *tmp_tm, *tmp_p;
 
-	list_for_each_entry_safe(tmp_tm, tmp_p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		pid_t pid = pid_nr(tmp_tm->pid);
-		list_for_each_entry_reverse(ts, &(tmp_tm->head.list), list){
-			if (kref_get_unless_zero(&ts->refcount) > 0){
+	list_for_each_entry(p_tm, task_head, tm_list){
+		pid_t pid = pid_nr(p_tm->pid);
+		s_list = &(p_tm->head.list);
+		list_for_each_entry_reverse(p_ts, s_list, list){
+				if (kref_get_unless_zero(&p_ts->refcount) > 0){
 				seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
-						pid,
-						i++,
-						ts->utime, 
-						ts->stime);
-				kref_put(&ts->refcount,
-						task_sample_release);
+						pid, i++, p_ts->utime,
+						p_ts->stime);
+				kref_put(&p_ts->refcount, task_sample_release);
 			}
 		}
 	}
 	return 0;
 }
 
-
 static int debugfs_taskmonitor_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, debugfs_task_monitor_show, NULL);
 }
 
+void tm_allocator(struct task_monitor* tm){
+
+	struct list_head *task_head = &(all_tasks->tm_head.tm_list);
+
+	tm = kmalloc(sizeof(struct task_monitor), GFP_KERNEL);
+
+	INIT_LIST_HEAD(&tm->head.list);
+	mutex_init(&tm->lock);
+	tm->nb_samples = 0;
+	list_add(&tm->tm_list, task_head);
+}
+
 static int monitor_init(void)
 {
-	struct task_monitor *tmp, *p;
 	int err;
 	
-	INIT_LIST_HEAD(&all_tasks->tm_head.tm_list);
+	/* allocation of the main structure */
+	all_tasks = kmalloc(sizeof(all_tasks), GFP_KERNEL);
+	INIT_LIST_HEAD(&(all_tasks->tm_head.tm_list));
 
-	err = monitor_pid(target);
-	if (err)
-		return err;
-
+	/* allocation of the kmemcache */
 	cached_ts = KMEM_CACHE(task_sample, 0);
 
+	/* preparation of the pool */
 	my_mempool = mempool_create(5,
 			mempool_alloc_slab,
 			mempool_free_slab,
 			cached_ts);
 
-	/* INIT_LIST_HEAD(&tm->head.list);*/
+	tm_allocator(&all_tasks->tm_head);
 
-	/* list_for_each_entry(tmp, &all_tasks->tm_head.tm_list, tm_list){*/
-	/*         tmp = kmalloc(sizeof(*tmp), GFP_KERNEL);*/
-	/*         INIT_LIST_HEAD(&tmp->head.list);*/
-	/*         mutex_init(&tmp->lock);*/
-	/*         tmp->nb_samples = 0;*/
-	/* }*/
+	/* checking if error with the pid */
+	err = monitor_pid(target, &(all_tasks->tm_head));
+	if (err)
+		return err;
 
-	/* INIT_LIST_HEAD(&tm->head.list);*/
-
+	/* starting the threads */
 	monitor_thread = kthread_run(monitor_fn, NULL, "monitor_fn");
 	if (IS_ERR(monitor_thread)) {
 		err = PTR_ERR(monitor_thread);
 		goto r_thread;
 	}
 
+	/* preparting the debugfs */
 	my_dentry = debugfs_create_file("taskmonitor", S_IRUGO, NULL, NULL,
 			&taskmonitor_fops);
 
 	if (!my_dentry)
 		pr_warn("Failed to create the debugfs taskmonitor file\n");
 
+	/* creating the directory for sysfs */
 	tm_obj = kobject_create_and_add("directory_monitor", kernel_kobj);
 	if (sysfs_create_file(tm_obj, &tm_attr.attr)){
 		printk(KERN_INFO"Cannot create sysfs file\n");
 		goto r_sysfs;
 	}
+	
+	/* variable for sysfs write */
 	run = true;
+
+	/* registering the shrinker */
 	if (register_shrinker(&my_shrinker))
 		pr_warn("bcache: %s: could not register shrinker\n",
 				__func__);
@@ -404,11 +362,6 @@ static int monitor_init(void)
 r_sysfs:
 	kobject_put(tm_obj);
 r_thread:
-	list_for_each_entry_safe(tmp, p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		put_pid(tmp->pid);
-		kfree(tmp);
-	}
 	return err;
 
 }
@@ -417,38 +370,45 @@ module_init(monitor_init);
 static void monitor_exit(void)
 {
 	int i;
-	struct task_monitor *tmp_tm, *p;
-	struct task_sample *ts, *tmp;
+	struct task_monitor *p_tm, *q_tm;
+	struct task_sample *p_ts, *q_ts;
+	struct list_head *s_list;
+	struct list_head *task_head = &(all_tasks->tm_head.tm_list);
 
 	i = 0;
+
 	if (monitor_thread)
 		kthread_stop(monitor_thread);
 
-	/* pr_info("nb instances : %d\n", tm->nb_samples);*/
 	pr_info("C= %d, D= %d\n", total_created, total_destroyed);
 
-	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		list_for_each_entry_safe(ts, tmp,  &(tmp_tm->head.list), list){
-			/* kmem_cache_free(cached_ts, ts);*/
-			kref_put(&ts->refcount, task_sample_release);
+	list_for_each_entry_safe(p_tm, q_tm, task_head, tm_list){
+		s_list = &(p_tm->head.list);
+		list_for_each_entry_safe(p_ts, q_ts, s_list, list){
+			kmem_cache_free(cached_ts, p_ts);
 		}
+		list_del(&p_tm->tm_list);
+		/* put_pid(p_tm->pid);*/
+		kfree(p_tm);
 	}
+	put_pid(all_tasks->tm_head.pid);
 
-	list_for_each_entry_safe(tmp_tm, p, &all_tasks->tm_head.tm_list,
-			tm_list){
-		put_pid(tmp_tm->pid);
-		kfree(tmp_tm);
-	}
+	/* directory sysfs destroy */
 	kobject_put(tm_obj);
+	/* removing the file from sysfs */
 	sysfs_remove_file(kernel_kobj, &tm_attr.attr);
+	/* useless but everything check */
 	run = false;
+	/* unregister the shrinker */
 	unregister_shrinker(&my_shrinker);
+	/* destro the pool */
 	mempool_destroy(my_mempool);
+	/* destroy the cache */
 	kmem_cache_destroy(cached_ts);
-
+	/* remove debugfs */
 	debugfs_remove(my_dentry);
-
+	/* removing the tasks list */
+	kfree(all_tasks);
 	pr_info("Monitoring module unloaded\n");
 }
 module_exit(monitor_exit);
