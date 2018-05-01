@@ -6,13 +6,14 @@ struct task_sample {
 };
 
 struct task_monitor {
+	struct kref refcount;
 	struct list_head tm_list;
 	struct task_sample head;
-	struct mutex lock;
 	struct pid *pid;
 	int nb_samples;
 };
 
 struct my_tasks{
+	struct mutex lock;
 	struct task_monitor tm_head;
 };
