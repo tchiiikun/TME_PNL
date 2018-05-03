@@ -1,36 +1,28 @@
-### TP 08 – Mécanismes de gestion de la mémoire dans le noyau
+# TP 08 – Mécanismes de gestion de la mémoire dans le noyau
 
 
 ## Exercice 1 : Monitoring de l’activité d’un processus (suite)
-# Question 1
+#### Question 1
 https://www.kernel.org/doc/html/v4.13/process/applying-patches.html
 https://lwn.net/Articles/167034/
 
-
 The -mm patches and the linux-next tree
-
 The -mm patches are experimental patches released by Andrew Morton.
-
 In the past, -mm tree were used to also test subsystem patches, but this function is now done via the linux-next <https://www.kernel.org/doc/man-pages/linux-next.html> tree. The Subsystem maintainers push their patches first to linux-next, and, during the merge window, sends them directly to Linus.
-
 The -mm patches serve as a sort of proving ground for new features and other experimental patches that aren’t merged via a subsystem tree. Once such patches has proved its worth in -mm for a while Andrew pushes it on to Linus for inclusion in mainline.
-
 The linux-next tree is daily updated, and includes the -mm patches. Both are in constant flux and contains many experimental features, a lot of debugging patches not appropriate for mainline etc., and is the most experimental of the branches described in this document.
-
 These patches are not appropriate for use on systems that are supposed to be stable and they are more risky to run than any of the other branches (make sure you have up-to-date backups – that goes for any experimental kernel but even more so for -mm patches or using a Kernel from the linux-next tree).
-
 Testing of -mm patches and linux-next is greatly appreciated since the whole point of those are to weed out regressions, crashes, data corruption bugs, build breakage (and any other bug in general) before changes are merged into the more stable mainline Linus tree.
-
 But testers of -mm and linux-next should be aware that breakages are more common than in any other tree.
 
 
-# Question 2
+### Question 2
 Voir code. ne pas oublier d'initialiser la liste et de supprimer a la fin.
 ajout d'une methode qui print tous les elements a la fin dans le exit pour
 tester.
-# Question 3
+### Question 3
 Voir code. ne pas oublier le kobject put et le sys remove.
-# Question 4
+### Question 4
 [root@pnl-tp ~]# ./ins.sh
 [  879.864981] Monitoring module loaded
 [root@pnl-tp ~]# cat /sys/kernel/directory_monitor/taskmonitor
@@ -44,7 +36,7 @@ Voir code. ne pas oublier le kobject put et le sys remove.
 https://lwn.net/Articles/527210/
 https://fr.wikipedia.org/wiki/Non_uniform_memory_access
 https://elixir.bootlin.com/linux/v4.9.85/source/include/linux/shrinker.h#L49
-# Question 1
+#### Question 1
 /* Compte le nombre que l'on peut degommer */
 unsigned long (*count_objects)(struct shrinker *,
 		struct shrink_control *sc);
@@ -65,7 +57,7 @@ atomic_long_t *nr_deferred;
 
 
 
-# Question 2 et Question 3
+### Question 2 et Question 3
 On cree autant d'objet que l'on veut, des que la pression memoire arrive on
 supprime tous les objets. On continue a creer des objets.
 Affichage : Debut et fin de destruction.
@@ -77,7 +69,7 @@ de vivants.
 ## Exercice 3 : Gestion efficace de la mémoire avec les slab
 https://lwn.net/Articles/319686/
 toto
-# Question 1
+### Question 1
 Probleme :
 struct task_sample {
 	struct list_head list;
@@ -150,8 +142,9 @@ Un acces exclisif existe entre les 3 types d'allocateurs, ils sont dans la
 	SLUB: L'actuel.
 	SLQB: Perf HPC
 
-# Question 3
-#define KMEM_CACHE(__struct, __flags) kmem_cache_create(#__struct,\
+### Question 3
+
+\#define KMEM_CACHE(__struct, __flags) kmem_cache_create(#__struct,\
 		sizeof(struct __struct), __alignof__(struct __struct),\
 		(__flags), NULL)
 
@@ -171,10 +164,10 @@ kmem_cache_create (const char *name, size_t size,
 
 ## Exercice 4 : Pré-allocation de la mémoire avec les mempools
 
-# Question 1
+### Question 1
 	https://lwn.net/Articles/22909/
 
-# Question 2
+### Question 2
 	Il ne nous faut pas implementer grand chose grace a :
 	" Creators of mempools will often want to use the slab allocator to do the actual object allocation and deallocation. To do that, create the slab, pass it in to mempool_create() as the pool_data value, and give mempool_alloc_slab and mempool_free_slab as the allocation and deallocation functions."
 
@@ -215,7 +208,7 @@ cat: write error: No space left on device
 ## Exercice 5 : Récupération « au besoin » de la mémoire : kref
 	https://elixir.bootlin.com/linux/v4.9.85/source/Documentation/kref.txt
 
-# Question 1
+### Question 1
 	struct task_sample {
 		struct list_head list; 	// 16
 		cputime_t utime;	// 8
@@ -225,12 +218,12 @@ cat: write error: No space left on device
 
 kref_init(&ts->refcount);
 
-# Question 2
+### Question 2
 http://www.kroah.com/linux/talks/ols_2004_kref_talk/
 (THX TO KROAH)
 	Il faut utiliser kref_get, kref_put et release.
 
-# Question 3
+### Question 3
 	1 reference au minimum, car meme s'il est passe dans le liberateur, il
 	reste encore la reference posee par la personne qui affiche.
 
@@ -244,7 +237,7 @@ https://lwn.net/Articles/22355/
 https://github.com/chadversary/debugfs-tutorial/blob/master/example1/debugfs_example1.c
 https://en.wikipedia.org/wiki/Debugfs
 
-# Question 1
+### Question 1
 
 -Pour creer un directory, si parent est NULL alors racine == debuhgfs:
 struct dentry *debugfs_create_dir(const char *name, struct dentry *parent);
@@ -258,7 +251,7 @@ struct dentry *debugfs_create_file_size(const char *name, umode_t mode,
 -Pour detruire:
 void debugfs_remove(struct dentry *dentry);
 
-# Question 2
+### Question 2
 struct dentry* my_dentry;
 
 static int debugfs_task_monitor_show(struct seq_file *m, void *v);
@@ -272,7 +265,7 @@ static const struct file_operations taskmonitor_fops = {
 };
 
 
-# Question 3
+### Question 3
 seq_printf(m, "pid:%hu num:%d : usr %lu sys %lu\n",
 		pid, i++, ts->utime, ts->stime);
 
@@ -281,6 +274,6 @@ aussi.
 
 
 ## Exercice 7 : Monitoring de plusieurs processus simultanément
-# Question 1
-# Question 2
-# Question 3
+### Question 1
+### Question 2
+### Question 3

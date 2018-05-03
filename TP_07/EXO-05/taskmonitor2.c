@@ -64,7 +64,7 @@ static const struct file_operations taskmonitor_fops = {
 unsigned long my_shrink_scan(struct shrinker *shrink,
 		struct shrink_control *sc)
 {
-	int res;
+	unsigned long res;
 	struct task_monitor *p_tm, *q_tm;
 	struct task_sample *p_ts, *q_ts;
 	struct list_head *s_list;
@@ -81,19 +81,20 @@ unsigned long my_shrink_scan(struct shrinker *shrink,
 			s_list = &(p_tm->head.list);
 			list_for_each_entry_safe(p_ts, q_ts, s_list, list){
 				kref_put(&p_ts->refcount, task_sample_release);
+				pr_info("deleting...\n");
 				res++;
 			}
 			kref_put(&p_tm->refcount, task_monitor_release);
 		}
 	}
-	pr_info("End deletion\n");
+	pr_info("%ld End deletion\n", res);
 	return res;
 }
 
 unsigned long my_shrink_count(struct shrinker *shrink,
 		struct shrink_control *sc)
 {
-	int res = 0;
+	unsigned long res = 0;
 	struct task_monitor *p_tm;
 	struct list_head *m_list = &(all_tasks->tm_head.tm_list);
 
@@ -149,12 +150,12 @@ struct task_sample *save_sample(struct task_monitor* tm)
 	struct task_sample* ts;
 
 	ts = kmem_cache_alloc(cached_ts, GFP_NOFS);
-	kref_init(&ts->refcount);
-
 	if (!ts){
 		pr_err("can't allocate for save_sample\n");
 		goto out;
 	}
+
+	kref_init(&ts->refcount);
 
 	if (kref_get_unless_zero(&ts->refcount) > 0){
 		get_sample(tm, ts);
@@ -203,7 +204,10 @@ int monitor_fn(void *data)
 		if (schedule_timeout(max(HZ/frequency/20, 1U/20)))
 			return -EINTR;
 		list_for_each_entry(p_tm, m_list, tm_list){
-			ex5_crash_tester = save_sample(p_tm);
+			if (kref_get_unless_zero(&p_tm->refcount) > 0){
+				ex5_crash_tester = save_sample(p_tm);
+				kref_put(&p_tm->refcount, task_monitor_release);
+			}
 		}
 	}
 	return 0;
@@ -315,7 +319,7 @@ static int debugfs_taskmonitor_open(struct inode *inode, struct file *file)
 	return single_open(file, debugfs_task_monitor_show, NULL);
 }
 
-void tm_allocator(int pid){
+int tm_allocator(int pid){
 
 	struct task_monitor* tm;
 	struct list_head *task_head = &(all_tasks->tm_head.tm_list);
@@ -324,14 +328,18 @@ void tm_allocator(int pid){
 
 	if (monitor_pid(pid, tm) != 0){
 		kfree(tm);
-		return;
+		return 1;
 	}
 
 	INIT_LIST_HEAD(&tm->head.list);
 	tm->nb_samples = 0;
 	kref_init(&tm->refcount);
+
+	mutex_lock(&all_tasks->lock);
 	list_add_tail(&tm->tm_list, task_head);
-	return;
+	mutex_unlock(&all_tasks->lock);
+
+	return 0;
 }
 
 static int monitor_init(void)
@@ -344,17 +352,17 @@ static int monitor_init(void)
 	mutex_init(&all_tasks->lock);
 	INIT_LIST_HEAD(&(all_tasks->tm_head.tm_list));
 
-	mutex_lock(&all_tasks->lock);
 	/* for (i = 1; i < 5; i++) {*/
-		tm_allocator(i);
+	if (tm_allocator(i)){
+		return 1;
+	}
 	/* }*/
-	mutex_unlock(&all_tasks->lock);
 
 	/* allocation of the kmemcache */
 	cached_ts = KMEM_CACHE(task_sample, 0);
 
 	/* preparation of the pool */
-	my_mempool = mempool_create(5,
+	my_mempool = mempool_create(42,
 			mempool_alloc_slab,
 			mempool_free_slab,
 			cached_ts);
@@ -415,15 +423,22 @@ static void monitor_exit(void)
 
 	pr_info("C= %d, D= %d\n", total_created, total_destroyed);
 
-	list_for_each_entry_safe(p_tm, q_tm, task_head, tm_list){
+	
+	pr_info("monitor_exit : Start deletion\n");
+	list_for_each_entry_safe_reverse(p_tm, q_tm, task_head, tm_list){
 		s_list = &(p_tm->head.list);
 		list_for_each_entry_safe(p_ts, q_ts, s_list, list){
-			kmem_cache_free(cached_ts, p_ts);
+			/* list_del(&p_ts->list);*/
+			/* kmem_cache_free(cached_ts, p_ts);*/
+			pr_info("monitor_exit : deleting...\n");
+			kref_put(&p_ts->refcount, task_sample_release);
 		}
+		/* list_del(&p_tm->tm_list);*/
+		/* kfree(p_tm);*/
 		put_pid(p_tm->pid);
 		kref_put(&p_tm->refcount, task_monitor_release);
 	}
-
+	pr_info("monitor_exit : End deletion\n");
 	/* directory sysfs destroy */
 	kobject_put(tm_obj);
 	/* removing the file from sysfs */
@@ -443,6 +458,5 @@ static void monitor_exit(void)
 	/* removing the tasks list */
 	kfree(all_tasks);
 	pr_info("Monitoring module unloaded\n");
-
 }
 module_exit(monitor_exit);
