@@ -5,12 +5,11 @@
 # Fixer les variables avec les chemins de vos fichiers
 HDA="-hda ../sources/pnl-tp.img"
 HDB="-hdb ../sources/myHome.img"
-KERNEL=../sources/linux-4.9.85/arch/x86/boot/bzImage
+KERNEL=../sources/linux-4.9.83/arch/x86/boot/bzImage
 
 if [ -n "${KDB}" ]; then
     KGD_WAIT='kgdbwait'
 fi
-
 
 #CMDLINE="kmemleak=on KDB=1 root=/dev/sda1 rw vga=792 console=ttyS0 kgdboc=ttyS1 ${KGD_WAIT}"
 CMDLINE="root=/dev/sda1 rw vga=792 console=ttyS0 kgdboc=ttyS1 ${KGD_WAIT}"
